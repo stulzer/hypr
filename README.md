@@ -78,3 +78,7 @@ Personal [Hyprland](https://hypr.land/) configuration for a single external 4K m
 | Package | Description |
 |---|---|
 | hyprshutdown | Graceful shutdown (falls back to `hyprctl dispatch exit`) |
+
+### Symlink working directory
+
+`sudo ln -s ~/.config/hypr/scripts/terminal-cwd.sh /usr/bin/current-working-directory`
