@@ -71,7 +71,7 @@ Personal [Hyprland](https://hypr.land/) configuration for a single external 4K m
 | Package | Role |
 |---|---|
 | [kitty](https://sw.kovidgoez.net/kitty/) | Terminal (`$terminal`) |
-| [dolphin](https://apps.kde.org/dolphin/) | File manager (`$fileManager`) |
+| [nautilus](https://apps.gnome.org/Nautilus/) | File manager (`$fileManager`) |
 
 ### Optional
 
