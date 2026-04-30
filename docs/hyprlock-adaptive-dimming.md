@@ -1,4 +1,4 @@
-# Hyprlock Adaptive Dimming
+# Hyprlock Adaptive Dimming — Session Learnings
 
 Notes from designing and debugging a wrapper that dims the LG UltraFine (via
 `usb-hid-brightness`) when hyprlock engages and restores brightness on the first
