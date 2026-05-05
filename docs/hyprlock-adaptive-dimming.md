@@ -1,8 +1,9 @@
 # Hyprlock Adaptive Dimming — Session Learnings
 
 Notes from designing and debugging a wrapper that dims the LG UltraFine (via
-`usb-hid-brightness`) when hyprlock engages and restores brightness on the first
-real keypress, with an Esc toggle to re-dim without losing the saved value.
+`usb-hid-brightness`) and the laptop eDP-1 (via `wl-gammarelay-rs` over busctl)
+when hyprlock engages, and restores brightness on the first real keypress, with
+an Esc toggle to re-dim without losing the saved values.
 
 ## What was built
 
@@ -10,14 +11,17 @@ real keypress, with an Esc toggle to re-dim without losing the saved value.
   drives an inline Python watcher.
 - `~/.config/hypr/hyprland.conf:285–286` — both lock keybinds
   (`Super+Ctrl+L` and `Super+Ctrl+Q` → suspend) now call the wrapper.
+- `~/.config/hypr/hyprland.conf:53` — `exec-once = wl-gammarelay-rs` provides
+  the dbus interface used to dim eDP-1 in software.
 - `~/.config/hypr/hyprlock.conf:3` — `grace = 0`.
 
-Behaviour during lock:
+Behaviour during lock (acts on both monitors when eDP-1 is active; LG-only
+otherwise):
 
 | Event                            | Action                      |
 | -------------------------------- | --------------------------- |
 | lock engaged                     | dim to 0 (state = `dim`)    |
-| any key-down other than Esc      | restore saved value (`bright`) |
+| any key-down other than Esc      | restore saved values (`bright`) |
 | Esc key-down                     | dim to 0 (`dim`)            |
 | unlock (SIGUSR1 or password)     | `EXIT` trap restores saved  |
 
@@ -120,6 +124,39 @@ from another TTY, hyprlock crash, or user typing before unlock.
 `~` expansion works in keybind paths (`exec, ~/.config/hypr/scripts/...`).
 No need to hard-code absolute paths or use `$HOME`.
 
+### 11. Two dim paths, one state machine
+
+The LG (USB HID, int 0–54000) and eDP-1 (dbus double 0.0–1.0) ride completely
+different transports but share the watcher's `dim`/`bright` state. The bash
+wrapper probes both at lock time and exports both saved values into the Python
+watcher; `go_dim` / `go_bright` operate on both, with the eDP setter as a
+no-op when its saved value is empty.
+
+**Probe-at-lock-time as the single source of truth.** An empty `SAVED_EDP` is
+the sentinel for "skip eDP this cycle". Three different conditions collapse to
+that one signal:
+
+- eDP-1 disabled in `monitors.conf` ⇒ output not registered with
+  wl-gammarelay-rs ⇒ `busctl get-property` exits 1.
+- wl-gammarelay-rs not yet started (or restarting) ⇒ bus name absent ⇒ exit 1.
+- First lock right after boot, before the daemon registered outputs ⇒ exit 1
+  for that one cycle; recovers on the next.
+
+No coupling to `monitor-toggle.sh` or `monitors.conf` parsing — toggle eDP-1
+on/off and the next lock adapts on its own.
+
+**Dbus path quirk: dashes become underscores.** wl-gammarelay-rs replaces `-`
+with `_` in object paths because dbus disallows dashes, so `eDP-1` becomes
+`/outputs/eDP_1`. Easy to miss; failure mode is `Failed to parse bus message:
+No such device or address` from `busctl`.
+
+**Don't migrate `XF86MonBrightnessUp/Down` to wl-gammarelay-rs.** Those keys
+should drive the kernel backlight (`brightnessctl -e4 -n2 set 5%±`) — that's
+the real hardware dim. wl-gammarelay-rs is a software gamma-curve filter and
+is the wrong tool for hardware brightness. The lock-dim path is the right
+place to use it because there we *want* the curve to land on top of whatever
+hardware level the user has chosen.
+
 ## Path the design took
 
 1. **v1** — wrapper with `libinput debug-events | grep pressed`, `grace = 3`
@@ -134,12 +171,20 @@ No need to hard-code absolute paths or use `$HOME`.
    with a `dim`/`bright` state machine keyed on `KEY_ESC`. Esc re-dims
    without losing the saved value; hyprlock's native Esc-clears-input
    behaviour aligns nicely with the visual dim.
+5. **v5** — extended the dim path to eDP-1 via `wl-gammarelay-rs` over
+   busctl. `usb-hid-brightness` could not reach the laptop panel (it's
+   USB-HID-specific to the LG), so the laptop screen used to stay full-bright
+   under lock. Added a `busctl get-property` probe at lock time: empty
+   result ⇒ skip eDP this cycle. Watcher's `dim`/`bright` state now drives
+   both outputs through `go_dim` / `go_bright` helpers; the existing trap-
+   based idempotent restore extends to eDP for free.
 
 ## Files to keep in sync
 
 - `~/.config/hypr/scripts/hyprlock-dim.sh` — the wrapper.
 - `~/.config/hypr/hyprland.conf` — lock keybinds must call the wrapper, not
-  `hyprlock` directly.
+  `hyprlock` directly. `exec-once = wl-gammarelay-rs` must also stay; without
+  it the eDP-1 dim is silently skipped (LG still dims correctly).
 - `~/.config/hypr/hyprlock.conf` — `grace = 0` must hold for the dim/brighten
   UX to make sense.
 
@@ -152,3 +197,9 @@ No need to hard-code absolute paths or use `$HOME`.
   on unlock (dim-only mode, no keypress-triggered restore).
 - `usb-hid-brightness` installed and able to see the monitor (same
   prerequisite as the existing brightness keybinds).
+- `wl-gammarelay-rs` installed and started via `exec-once` in
+  `hyprland.conf`. Verify with `busctl --user list | grep wl-gammarelay`.
+  Without it, eDP-1 dimming is silently skipped (LG still dims).
+- `dbus-user-session` (or equivalent) so `busctl --user` works in the
+  Hyprland session — implicit on Arch under most setups, but worth flagging
+  for non-Arch reproducers.
