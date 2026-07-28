@@ -9,10 +9,11 @@ an Esc toggle to re-dim without losing the saved values.
 
 - `~/.config/hypr/scripts/hyprlock-dim.sh` — bash wrapper around `hyprlock` that
   drives an inline Python watcher.
-- `~/.config/hypr/hyprland.conf:285–286` — both lock keybinds
+- `~/.config/hypr/binds.lua` — both lock keybinds
   (`Super+Ctrl+L` and `Super+Ctrl+Q` → suspend) now call the wrapper.
-- `~/.config/hypr/hyprland.conf:53` — `exec-once = wl-gammarelay-rs` provides
-  the dbus interface used to dim eDP-1 in software.
+- `~/.config/hypr/env.lua` — `wl-gammarelay-rs` is started from the
+  `hyprland.start` handler and provides the dbus interface used to dim eDP-1 in
+  software.
 - `~/.config/hypr/hyprlock.conf:3` — `grace = 0`.
 
 Behaviour during lock (acts on both monitors when eDP-1 is active; LG-only
@@ -90,7 +91,8 @@ watcher.
 
 The tool auto-detects the LG UltraFine over USB HID — no device ID needed.
 Value range on this panel is `0–54000`; existing brightness keybinds
-(`hyprland.conf:265–269`) step by `5400` and clamp at the bounds. The wrapper
+(`binds.lua`, the `lgBrightnessUp`/`lgBrightnessDown` locals) step by `5400` and
+clamp at the bounds. The wrapper
 reuses the same probe pattern:
 
 ```bash
@@ -136,13 +138,13 @@ no-op when its saved value is empty.
 the sentinel for "skip eDP this cycle". Three different conditions collapse to
 that one signal:
 
-- eDP-1 disabled in `monitors.conf` ⇒ output not registered with
+- eDP-1 disabled in `monitors_edp1.lua` ⇒ output not registered with
   wl-gammarelay-rs ⇒ `busctl get-property` exits 1.
 - wl-gammarelay-rs not yet started (or restarting) ⇒ bus name absent ⇒ exit 1.
 - First lock right after boot, before the daemon registered outputs ⇒ exit 1
   for that one cycle; recovers on the next.
 
-No coupling to `monitor-toggle.sh` or `monitors.conf` parsing — toggle eDP-1
+No coupling to `monitor-toggle.sh` or `monitors_edp1.lua` parsing — toggle eDP-1
 on/off and the next lock adapts on its own.
 
 **Dbus path quirk: dashes become underscores.** wl-gammarelay-rs replaces `-`
@@ -182,9 +184,11 @@ hardware level the user has chosen.
 ## Files to keep in sync
 
 - `~/.config/hypr/scripts/hyprlock-dim.sh` — the wrapper.
-- `~/.config/hypr/hyprland.conf` — lock keybinds must call the wrapper, not
-  `hyprlock` directly. `exec-once = wl-gammarelay-rs` must also stay; without
-  it the eDP-1 dim is silently skipped (LG still dims correctly).
+- `~/.config/hypr/binds.lua` — lock keybinds must call the wrapper, not
+  `hyprlock` directly.
+- `~/.config/hypr/env.lua` — the `wl-gammarelay-rs` line in the
+  `hyprland.start` handler must stay; without it the eDP-1 dim is silently
+  skipped (LG still dims correctly).
 - `~/.config/hypr/hyprlock.conf` — `grace = 0` must hold for the dim/brighten
   UX to make sense.
 
@@ -197,8 +201,8 @@ hardware level the user has chosen.
   on unlock (dim-only mode, no keypress-triggered restore).
 - `usb-hid-brightness` installed and able to see the monitor (same
   prerequisite as the existing brightness keybinds).
-- `wl-gammarelay-rs` installed and started via `exec-once` in
-  `hyprland.conf`. Verify with `busctl --user list | grep wl-gammarelay`.
+- `wl-gammarelay-rs` installed and started from the `hyprland.start` handler in
+  `env.lua`. Verify with `busctl --user list | grep wl-gammarelay`.
   Without it, eDP-1 dimming is silently skipped (LG still dims).
 - `dbus-user-session` (or equivalent) so `busctl --user` works in the
   Hyprland session — implicit on Arch under most setups, but worth flagging
